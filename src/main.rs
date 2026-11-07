@@ -305,6 +305,7 @@ struct Layout {
     y0: usize,
     row_w: usize,
     side: usize,
+    pad: usize,
     step: usize,
     fpx: f32,
     fy: f32,
@@ -326,6 +327,7 @@ fn make_layout(w: usize, h: usize, n: usize) -> Layout {
         y0: h * 30 / 100 + (h * 40 / 100).saturating_sub(tile) / 2,
         row_w,
         side: tile + 8,
+        pad: (tile as f32 / 13.0).max(11.0) as usize + 4,
         step: tile + gap,
         fpx: h as f32 / 38.0,
         fy: h as f32 * 0.90,
@@ -347,11 +349,19 @@ fn draw_tile(c: &mut Canvas, f: &Fonts, e: &Entry, x: f32, y: f32, tile: f32, on
     c.centered(&f.medium, e.name, cx, y + tile * 0.68, npx, if on { 0xffffff } else { TEXT });
     c.centered(&f.regular, e.note, cx, y + tile * 0.68 + npx * 1.35, npx * 0.72, MUTED);
     if last {
-        let px = (tile / 14.0).max(11.0);
+        let px = (tile / 13.0).max(11.0);
         let tw = Canvas::measure(&f.medium, "Last used", px);
-        let (pw, ph) = (tw + px * 1.8, px * 1.7);
-        c.rounded(cx - pw / 2.0, y - 4.0, pw, ph, ph / 2.0, ACCENT);
-        c.text(&f.medium, "Last used", cx - tw / 2.0, y - 4.0 + (ph - px) / 2.0 - px * 0.12, px, 0xffffff);
+        let icon_w = px * 1.5;
+        let (pw, ph) = (tw + icon_w + px * 1.9, px * 2.0);
+        let (bx, by) = (cx - pw / 2.0, y - ph / 2.0);
+        let thick = (px * 0.12).max(1.4);
+        c.rounded(bx - 3.0, by - 3.0, pw + 6.0, ph + 6.0, ph / 2.0 + 3.0, BG);
+        c.rounded(bx, by, pw, ph, ph / 2.0, ACCENT);
+        let (ix, iy, ir) = (bx + px * 1.0 + icon_w / 2.0, by + ph / 2.0, px * 0.5);
+        c.ring(ix, iy, ir, thick, 0xffffff);
+        c.line(ix, iy, ix, iy - ir * 0.62, thick, 0xffffff);
+        c.line(ix, iy, ix + ir * 0.5, iy, thick, 0xffffff);
+        c.text(&f.medium, "Last used", bx + px * 1.1 + icon_w, by + (ph - px) / 2.0 - px * 0.12, px, 0xffffff);
     }
 }
 
@@ -362,8 +372,8 @@ fn make_sprites(f: &Fonts, items: &[Entry], l: &Layout, last: Option<usize>) -> 
         .map(|(idx, e)| {
             let mut out = [Vec::new(), Vec::new()];
             for (k, on) in [false, true].into_iter().enumerate() {
-                let mut c = Canvas::new(l.side, l.side);
-                draw_tile(&mut c, f, e, 4.0, 4.0, l.tile as f32, on, last == Some(idx));
+                let mut c = Canvas::new(l.side, l.side + l.pad);
+                draw_tile(&mut c, f, e, 4.0, 4.0 + l.pad as f32, l.tile as f32, on, last == Some(idx));
                 out[k] = c.buf;
             }
             out
@@ -390,7 +400,7 @@ fn clear_rect(c: &mut Canvas, x: usize, y: usize, w: usize, h: usize) {
 }
 
 fn strip_rect(l: &Layout) -> (usize, usize, usize, usize) {
-    (l.x0 - 4, l.y0 - 4, l.row_w + 8, l.side)
+    (l.x0 - 4, l.y0 - 4 - l.pad, l.row_w + 8, l.side + l.pad)
 }
 
 fn tile_x(l: &Layout, i: usize, scroll_px: f32) -> i32 {
@@ -409,7 +419,7 @@ fn paint_strip(c: &mut Canvas, l: &Layout, sprites: &[[Vec<BltPixel>; 2]], selec
         let img = &sp[(i == selected) as usize];
         let from = (cl - x).max(0) as usize;
         let to = ((cr - x) as usize).min(l.side);
-        for row in 0..l.side {
+        for row in 0..l.side + l.pad {
             let dst = (sy + row) * c.w + (x + from as i32) as usize;
             c.buf[dst..dst + (to - from)].copy_from_slice(&img[row * l.side + from..row * l.side + to]);
         }
@@ -452,6 +462,49 @@ fn paint_arrows_dots(c: &mut Canvas, l: &Layout, n: usize, offset: usize, select
     [(lx, ay, aw, ah), (rx, ay, aw, ah), (dx, dy, dw, (step * 2.0) as usize)]
 }
 
+fn arc(c: &mut Canvas, cx: f32, cy: f32, r: f32, a0: f32, a1: f32, thick: f32, color: u32) {
+    let steps = 28;
+    let at = |a: f32| (cx + r * libm::cosf(a), cy + r * libm::sinf(a));
+    let (mut px, mut py) = at(a0);
+    for i in 1..=steps {
+        let (x, y) = at(a0 + (a1 - a0) * i as f32 / steps as f32);
+        c.line(px, py, x, y, thick, color);
+        (px, py) = (x, y);
+    }
+}
+
+fn tool_icon(c: &mut Canvas, i: usize, cx: f32, cy: f32, r: f32, color: u32) {
+    let t = (r * 0.2).max(1.6);
+    let pi = core::f32::consts::PI;
+    match i {
+        0 => {
+            c.ring(cx, cy, r * 0.5, t, color);
+            for k in 0..8 {
+                let a = k as f32 * pi / 4.0;
+                let (cs, sn) = (libm::cosf(a), libm::sinf(a));
+                c.line(cx + cs * r * 0.72, cy + sn * r * 0.72, cx + cs * r * 1.0, cy + sn * r * 1.0, t * 1.5, color);
+            }
+            c.ring(cx, cy, r * 0.74, t, color);
+        }
+        1 => {
+            let end = pi * 1.28;
+            arc(c, cx, cy, r * 0.82, -pi * 0.35, end, t, color);
+            let (cs, sn) = (libm::cosf(end), libm::sinf(end));
+            let (px, py) = (cx + cs * r * 0.82, cy + sn * r * 0.82);
+            let (tx, ty) = (-sn, cs);
+            let tip = (px + tx * r * 0.45, py + ty * r * 0.45);
+            let (b1, b2) = ((px + cs * r * 0.42, py + sn * r * 0.42), (px - cs * r * 0.42, py - sn * r * 0.42));
+            c.line(b1.0, b1.1, tip.0, tip.1, t, color);
+            c.line(b2.0, b2.1, tip.0, tip.1, t, color);
+            c.line(b1.0, b1.1, b2.0, b2.1, t, color);
+        }
+        _ => {
+            arc(c, cx, cy + r * 0.08, r * 0.82, -pi * 0.5 + 0.7, -pi * 0.5 + 2.0 * pi - 0.7, t, color);
+            c.line(cx, cy - r * 0.95, cx, cy - r * 0.1, t * 1.2, color);
+        }
+    }
+}
+
 const DOCK: [&str; 3] = ["Firmware setup", "Restart", "Power off"];
 
 fn dock_geometry(l: &Layout) -> (f32, f32) {
@@ -470,7 +523,8 @@ fn paint_dock(c: &mut Canvas, f: &Fonts, l: &Layout, focus: Option<usize>) -> (u
     let px = h * 0.42;
     let pad = px * 1.1;
     let gap = h * 0.35;
-    let widths: Vec<f32> = DOCK.iter().map(|t| Canvas::measure(&f.regular, t, px) + pad * 2.0).collect();
+    let (iw, ig) = (px * 1.25, px * 0.6);
+    let widths: Vec<f32> = DOCK.iter().map(|t| Canvas::measure(&f.regular, t, px) + pad * 2.0 + iw + ig).collect();
     let total: f32 = widths.iter().sum::<f32>() + gap * (DOCK.len() as f32 - 1.0);
     let mut x = (l.w as f32 - total) / 2.0;
     for (i, t) in DOCK.iter().enumerate() {
@@ -482,7 +536,9 @@ fn paint_dock(c: &mut Canvas, f: &Fonts, l: &Layout, focus: Option<usize>) -> (u
             c.rounded(x, y, widths[i], h, h / 2.0, LINE);
             c.rounded(x + 1.5, y + 1.5, widths[i] - 3.0, h - 3.0, h / 2.0 - 1.5, BG);
         }
-        c.centered(&f.regular, t, x + widths[i] / 2.0, y + (h - px) / 2.0 - px * 0.12, px, if on { 0xffffff } else { MUTED });
+        let col = if on { 0xffffff } else { MUTED };
+        tool_icon(c, i, x + pad + iw / 2.0, y + h / 2.0, iw / 2.0, col);
+        c.text(&f.regular, t, x + pad + iw + ig, y + (h - px) / 2.0 - px * 0.12, px, col);
         x += widths[i] + gap;
     }
     (rx, (y - 4.0) as usize, rw, (h + 8.0) as usize)

@@ -314,7 +314,7 @@ fn make_layout(w: usize, h: usize, n: usize) -> Layout {
     let shown = n.clamp(1, VISIBLE);
     let gap = h / 28;
     let avail_w = (w as f32 * 0.80) as usize;
-    let tile = (((avail_w - gap * (shown - 1)) / shown).min(h * 36 / 100)).max(64);
+    let tile = (((avail_w - gap * (shown - 1)) / shown).min(h * 25 / 100)).max(64);
     let row_w = tile * shown + gap * (shown - 1);
     Layout {
         w,

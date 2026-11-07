@@ -22,8 +22,8 @@ use uefi::{boot, cstr16, system, CStr16, Identify};
 #[unsafe(link_section = ".sbat")]
 static SBAT: [u8; 130] = *b"sbat,1,SBAT Version,sbat,1,https://github.com/rhboot/shim/blob/main/SBAT.md\nsail,1,Sail,sail,0.1.0,https://github.com/fr3on/sail\n\0";
 
-const BG: u32 = 0x0d1117;
-const PANEL: u32 = 0x161d2b;
+const BG: u32 = 0x000000;
+const PANEL: u32 = 0x11151c;
 const LINE: u32 = 0x2a313b;
 const TEXT: u32 = 0xf0f3f6;
 const MUTED: u32 = 0x8b949e;

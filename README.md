@@ -13,7 +13,7 @@ A graphical UEFI boot menu with big tiles, written in Rust. It finds the systems
 - Finds Fedora, Windows, Ubuntu, Debian, Arch Linux, openSUSE and Linux Mint on any disk, plus any other disk that has `\EFI\BOOT\BOOTX64.EFI`.
 - Four tiles in view, scrolling for more. Keys: Left and Right, number keys, Enter.
 - Remembers the last system you started: it gets a "Last used" pill and the countdown starts on it.
-- A row of tools under the tiles (press Down): Firmware setup, Restart and Power off.
+- A row of tools under the tiles (press Down): Restart, Power off, and Firmware setup where the firmware supports opening its setup from software (many do not, and then the button is hidden).
 - Countdown of 8 seconds on the first tile; any key stops it.
 - Starts a system by chainloading its own EFI file. It never edits or replaces another boot loader.
 - Draws at up to 1920x1200, even on a 4K screen, to stay fast.

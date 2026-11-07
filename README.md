@@ -4,6 +4,10 @@ A graphical UEFI boot menu with big tiles, written in Rust. It finds the operati
 
 > **Experimental.** Sail is a boot loader. A mistake can leave a machine that does not boot. It was tested on one machine (a Lenovo ThinkStation P620 with Fedora and Windows 11). Read this page fully, keep a recovery USB, and do not use it on a machine you cannot fix.
 
+![Sail showing four of seven boot tiles](docs/preview.png)
+
+*Screenshot from a QEMU test with stand-in entries (Fedora, Ubuntu, Debian, Arch Linux, openSUSE, Linux Mint, and Windows).*
+
 ## What it does
 
 - Scans every disk's EFI partition and lists what it knows: Fedora, Windows, Ubuntu, Debian, Arch, openSUSE, Linux Mint, and any other disk with `\EFI\BOOT\BOOTX64.EFI`.

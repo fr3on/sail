@@ -4,7 +4,7 @@ A graphical UEFI boot menu with big tiles, written in Rust. It finds the systems
 
 ![Sail showing four of seven boot tiles](docs/preview.png)
 
-*A QEMU run with stand-in entries.*
+*A QEMU run with stand-in entries; Ubuntu was the last system started.*
 
 > **Experimental.** Sail is a boot loader, and a mistake can leave a machine that will not boot. It has been tested on one machine only (a Lenovo ThinkStation P620 with Fedora and Windows 11, Secure Boot on). Keep a recovery USB and do not try it on a machine you cannot repair.
 
@@ -12,12 +12,14 @@ A graphical UEFI boot menu with big tiles, written in Rust. It finds the systems
 
 - Finds Fedora, Windows, Ubuntu, Debian, Arch Linux, openSUSE and Linux Mint on any disk, plus any other disk that has `\EFI\BOOT\BOOTX64.EFI`.
 - Four tiles in view, scrolling for more. Keys: Left and Right, number keys, Enter.
+- Remembers the last system you started: it gets a "Last used" pill and the countdown starts on it.
+- A row of tools under the tiles (press Down): Firmware setup, Restart and Power off.
 - Countdown of 8 seconds on the first tile; any key stops it.
 - Starts a system by chainloading its own EFI file. It never edits or replaces another boot loader.
 - Draws at up to 1920x1200, even on a 4K screen, to stay fast.
 - Works with Secure Boot through shim and a key you enroll yourself (MOK).
 
-**Not included:** reading GRUB menus, kernel options, saving the last choice, or managing boot entries. Linux systems start through their own shim and GRUB. x86_64 UEFI only.
+**Not included:** reading GRUB menus, kernel options, or managing boot entries. Linux systems start through their own shim and GRUB. x86_64 UEFI only.
 
 ## Build
 

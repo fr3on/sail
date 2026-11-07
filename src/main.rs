@@ -332,7 +332,7 @@ fn make_layout(w: usize, h: usize, n: usize) -> Layout {
     }
 }
 
-fn draw_tile(c: &mut Canvas, f: &Fonts, e: &Entry, x: f32, y: f32, tile: f32, on: bool) {
+fn draw_tile(c: &mut Canvas, f: &Fonts, e: &Entry, x: f32, y: f32, tile: f32, on: bool, last: bool) {
     let rad = tile * 0.14;
     if on {
         c.rounded(x - 4.0, y - 4.0, tile + 8.0, tile + 8.0, rad + 4.0, ACCENT);
@@ -346,16 +346,24 @@ fn draw_tile(c: &mut Canvas, f: &Fonts, e: &Entry, x: f32, y: f32, tile: f32, on
     let npx = (tile / 9.0).max(14.0);
     c.centered(&f.medium, e.name, cx, y + tile * 0.68, npx, if on { 0xffffff } else { TEXT });
     c.centered(&f.regular, e.note, cx, y + tile * 0.68 + npx * 1.35, npx * 0.72, MUTED);
+    if last {
+        let px = (tile / 14.0).max(11.0);
+        let tw = Canvas::measure(&f.medium, "Last used", px);
+        let (pw, ph) = (tw + px * 1.8, px * 1.7);
+        c.rounded(cx - pw / 2.0, y - 4.0, pw, ph, ph / 2.0, ACCENT);
+        c.text(&f.medium, "Last used", cx - tw / 2.0, y - 4.0 + (ph - px) / 2.0 - px * 0.12, px, 0xffffff);
+    }
 }
 
-fn make_sprites(f: &Fonts, items: &[Entry], l: &Layout) -> Vec<[Vec<BltPixel>; 2]> {
+fn make_sprites(f: &Fonts, items: &[Entry], l: &Layout, last: Option<usize>) -> Vec<[Vec<BltPixel>; 2]> {
     items
         .iter()
-        .map(|e| {
+        .enumerate()
+        .map(|(idx, e)| {
             let mut out = [Vec::new(), Vec::new()];
             for (k, on) in [false, true].into_iter().enumerate() {
                 let mut c = Canvas::new(l.side, l.side);
-                draw_tile(&mut c, f, e, 4.0, 4.0, l.tile as f32, on);
+                draw_tile(&mut c, f, e, 4.0, 4.0, l.tile as f32, on, last == Some(idx));
                 out[k] = c.buf;
             }
             out
@@ -444,16 +452,52 @@ fn paint_arrows_dots(c: &mut Canvas, l: &Layout, n: usize, offset: usize, select
     [(lx, ay, aw, ah), (rx, ay, aw, ah), (dx, dy, dw, (step * 2.0) as usize)]
 }
 
+const DOCK: [&str; 3] = ["Firmware setup", "Restart", "Power off"];
+
+fn dock_geometry(l: &Layout) -> (f32, f32) {
+    ((l.y0 + l.tile) as f32 + l.gap as f32 * 3.6, l.h as f32 / 24.0)
+}
+
+fn footer_top(l: &Layout) -> f32 {
+    let (y, h) = dock_geometry(l);
+    y + h + l.gap as f32 * 0.8
+}
+
+fn paint_dock(c: &mut Canvas, f: &Fonts, l: &Layout, focus: Option<usize>) -> (usize, usize, usize, usize) {
+    let (y, h) = dock_geometry(l);
+    let (rx, rw) = ((l.w as f32 * 0.15) as usize, (l.w as f32 * 0.7) as usize);
+    clear_rect(c, rx, (y - 4.0) as usize, rw, (h + 8.0) as usize);
+    let px = h * 0.42;
+    let pad = px * 1.1;
+    let gap = h * 0.35;
+    let widths: Vec<f32> = DOCK.iter().map(|t| Canvas::measure(&f.regular, t, px) + pad * 2.0).collect();
+    let total: f32 = widths.iter().sum::<f32>() + gap * (DOCK.len() as f32 - 1.0);
+    let mut x = (l.w as f32 - total) / 2.0;
+    for (i, t) in DOCK.iter().enumerate() {
+        let on = focus == Some(i);
+        if on {
+            c.rounded(x - 2.0, y - 2.0, widths[i] + 4.0, h + 4.0, h / 2.0 + 2.0, ACCENT);
+            c.rounded(x, y, widths[i], h, h / 2.0, PANEL);
+        } else {
+            c.rounded(x, y, widths[i], h, h / 2.0, LINE);
+            c.rounded(x + 1.5, y + 1.5, widths[i] - 3.0, h - 3.0, h / 2.0 - 1.5, BG);
+        }
+        c.centered(&f.regular, t, x + widths[i] / 2.0, y + (h - px) / 2.0 - px * 0.12, px, if on { 0xffffff } else { MUTED });
+        x += widths[i] + gap;
+    }
+    (rx, (y - 4.0) as usize, rw, (h + 8.0) as usize)
+}
+
 fn paint_footer(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], selected: usize, left: Option<u32>, message: &str) -> (usize, usize, usize, usize) {
     let w = l.w as f32;
-    let top = (l.y0 + l.tile) as f32 + l.gap as f32 * 2.6;
+    let top = footer_top(l);
     let (rx, ry, rw) = ((l.w as f32 * 0.15) as usize, top as usize, (l.w as f32 * 0.7) as usize);
     let rh = (l.fy + l.fpx * 3.8 - top) as usize;
     clear_rect(c, rx, ry, rw, rh);
     if !message.is_empty() {
-        c.centered(&f.medium, message, w / 2.0, top, l.fpx, ERROR);
+        c.centered(&f.medium, message, w / 2.0, l.fy - l.fpx * 2.6, l.fpx, ERROR);
     }
-    let hint = if items.len() > 1 { "Left Right select    Enter start" } else { "Enter start" };
+    let hint = if items.len() > 1 { "Left Right select    Enter start    Down tools" } else { "Enter start    Down tools" };
     c.centered(&f.regular, hint, w / 2.0, l.fy, l.fpx, MUTED);
     if let Some(t) = left {
         if let Some(e) = items.get(selected) {
@@ -472,7 +516,7 @@ fn paint_footer(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], selected
     (rx, ry, rw, rh)
 }
 
-fn paint_all(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], sprites: &[[Vec<BltPixel>; 2]], selected: usize, offset: usize, left: Option<u32>, message: &str) {
+fn paint_all(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], sprites: &[[Vec<BltPixel>; 2]], selected: usize, offset: usize, left: Option<u32>, message: &str, dock: Option<usize>) {
     c.clear();
     let (w, h) = (c.w as f32, c.h as f32);
     c.centered(&f.bold, "Sail", w / 2.0, h * 0.06, h / 13.0, TEXT);
@@ -480,10 +524,12 @@ fn paint_all(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], sprites: &[
     if items.is_empty() {
         c.centered(&f.medium, "No systems found", w / 2.0, h * 0.45, h / 24.0, TEXT);
         c.centered(&f.regular, "Add a boot loader to the EFI partition", w / 2.0, h * 0.45 + h / 18.0, h / 38.0, MUTED);
+        paint_dock(c, f, l, dock);
         return;
     }
     paint_strip(c, l, sprites, selected, (offset * l.step) as f32);
     paint_arrows_dots(c, l, items.len(), offset, selected);
+    paint_dock(c, f, l, dock);
     paint_footer(c, f, l, items, selected, left, message);
 }
 
@@ -502,7 +548,7 @@ fn paint_launching(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], sprit
             c.dim(x0, sy, (x1 - x0 as i32) as usize, sh, 0.7);
         }
     }
-    let top = (l.y0 + l.tile) as f32 + l.gap as f32 * 2.6;
+    let top = footer_top(l);
     let (rx, ry, rw) = ((l.w as f32 * 0.15) as usize, top as usize, (l.w as f32 * 0.7) as usize);
     let rh = (l.fy + l.fpx * 3.8 - top) as usize;
     clear_rect(c, rx, ry, rw, rh);
@@ -539,6 +585,41 @@ fn tick() {
     boot::stall(Duration::from_millis(10));
 }
 
+const SAIL_VENDOR: uefi::runtime::VariableVendor = uefi::runtime::VariableVendor(uefi::guid!("5a11e000-0000-4000-8000-000000000001"));
+
+fn nv_attrs() -> uefi::runtime::VariableAttributes {
+    uefi::runtime::VariableAttributes::NON_VOLATILE | uefi::runtime::VariableAttributes::BOOTSERVICE_ACCESS | uefi::runtime::VariableAttributes::RUNTIME_ACCESS
+}
+
+fn load_last(items: &[Entry]) -> Option<usize> {
+    let (data, _) = uefi::runtime::get_variable_boxed(cstr16!("SailLast"), &SAIL_VENDOR).ok()?;
+    items.iter().position(|e| e.name.as_bytes() == &data[..])
+}
+
+fn save_last(name: &str) {
+    let _ = uefi::runtime::set_variable(cstr16!("SailLast"), &SAIL_VENDOR, nv_attrs(), name.as_bytes());
+}
+
+fn run_tool(i: usize) -> ! {
+    use uefi::runtime::{self, ResetType};
+    match i {
+        0 => {
+            let vendor = runtime::VariableVendor::GLOBAL_VARIABLE;
+            let mut cur = [0u8; 8];
+            if let Ok((data, _)) = runtime::get_variable_boxed(cstr16!("OsIndications"), &vendor) {
+                for (d, s) in cur.iter_mut().zip(data.iter()) {
+                    *d = *s;
+                }
+            }
+            cur[0] |= 1;
+            let _ = runtime::set_variable(cstr16!("OsIndications"), &vendor, nv_attrs(), &cur);
+            runtime::reset(ResetType::COLD, Status::SUCCESS, None)
+        }
+        1 => runtime::reset(ResetType::COLD, Status::SUCCESS, None),
+        _ => runtime::reset(ResetType::SHUTDOWN, Status::SUCCESS, None),
+    }
+}
+
 #[entry]
 fn main() -> Status {
     uefi::helpers::init().unwrap();
@@ -565,39 +646,58 @@ fn main() -> Status {
     let items = discover();
     let n = items.len();
     let l = make_layout(w, h, n);
-    let sprites = make_sprites(&fonts, &items, &l);
+    let last = load_last(&items);
+    let sprites = make_sprites(&fonts, &items, &l, last);
 
-    let mut selected = 0usize;
-    let mut offset = 0usize;
+    let mut selected = last.unwrap_or(0);
+    let mut offset = if selected >= VISIBLE { selected + 1 - VISIBLE } else { 0 };
+    let mut dock: Option<usize> = None;
     let mut left: Option<u32> = if n == 0 { None } else { Some(COUNTDOWN_TENTHS) };
     let mut message = String::new();
     let mut ticks = 0u32;
 
-    paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message);
+    paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message, dock);
     blit_rect(&mut gop, &canvas, 0, 0, w, h);
 
     loop {
         let key = system::with_stdin(|i| i.read_key()).ok().flatten();
         let mut go = false;
         if let Some(k) = key {
-            let old = selected;
-            let old_offset = offset;
+            let (old, old_offset, old_dock) = (selected, offset, dock);
             left = None;
             message.clear();
             match k {
-                Key::Special(ScanCode::RIGHT) => selected = (selected + 1) % n.max(1),
-                Key::Special(ScanCode::LEFT) => selected = (selected + n.max(1) - 1) % n.max(1),
+                Key::Special(ScanCode::DOWN) => {
+                    if dock.is_none() {
+                        dock = Some(0)
+                    }
+                }
+                Key::Special(ScanCode::UP) => dock = None,
+                Key::Special(ScanCode::RIGHT) => match dock {
+                    Some(d) => dock = Some((d + 1) % DOCK.len()),
+                    None => selected = (selected + 1) % n.max(1),
+                },
+                Key::Special(ScanCode::LEFT) => match dock {
+                    Some(d) => dock = Some((d + DOCK.len() - 1) % DOCK.len()),
+                    None => selected = (selected + n.max(1) - 1) % n.max(1),
+                },
                 Key::Printable(c) => {
                     let ch = char::from(c);
                     if ch == '\r' {
-                        go = n > 0;
-                    } else if let Some(d) = ch.to_digit(10) {
-                        if d >= 1 && (d as usize) <= n { selected = d as usize - 1 }
+                        match dock {
+                            Some(d) => run_tool(d),
+                            None => go = n > 0,
+                        }
+                    } else if let (Some(d), None) = (ch.to_digit(10), dock) {
+                        if d >= 1 && (d as usize) <= n {
+                            selected = d as usize - 1
+                        }
                     }
                 }
                 _ => {}
             }
             if n > 0 {
+                let sel_eff = if dock.is_some() { usize::MAX } else { selected };
                 if selected < offset { offset = selected }
                 if selected >= offset + VISIBLE { offset = selected + 1 - VISIBLE }
                 let (sx, sy, sw, sh) = strip_rect(&l);
@@ -607,12 +707,15 @@ fn main() -> Status {
                     for fr in 1..=FRAMES {
                         let t = fr as f32 / FRAMES as f32;
                         let e = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
-                        paint_strip(&mut canvas, &l, &sprites, selected, from + (to - from) * e);
+                        paint_strip(&mut canvas, &l, &sprites, sel_eff, from + (to - from) * e);
                         blit_rect(&mut gop, &canvas, sx, sy, sw, sh);
                         boot::stall(Duration::from_millis(8));
                     }
+                } else if dock != old_dock {
+                    paint_strip(&mut canvas, &l, &sprites, sel_eff, (offset * l.step) as f32);
+                    blit_rect(&mut gop, &canvas, sx, sy, sw, sh);
                 } else if selected != old {
-                    paint_strip(&mut canvas, &l, &sprites, selected, (offset * l.step) as f32);
+                    paint_strip(&mut canvas, &l, &sprites, sel_eff, (offset * l.step) as f32);
                     for i in [old, selected] {
                         let x = tile_x(&l, i, (offset * l.step) as f32).max(sx as i32) as usize;
                         blit_rect(&mut gop, &canvas, x, sy, l.side, sh);
@@ -621,9 +724,11 @@ fn main() -> Status {
                 for (x, y, rw, rh) in paint_arrows_dots(&mut canvas, &l, n, offset, selected) {
                     blit_rect(&mut gop, &canvas, x, y, rw, rh);
                 }
-                let (x, y, rw, rh) = paint_footer(&mut canvas, &fonts, &l, &items, selected, left, &message);
-                blit_rect(&mut gop, &canvas, x, y, rw, rh);
             }
+            let (x, y, rw, rh) = paint_dock(&mut canvas, &fonts, &l, dock);
+            blit_rect(&mut gop, &canvas, x, y, rw, rh);
+            let (x, y, rw, rh) = paint_footer(&mut canvas, &fonts, &l, &items, selected, left, &message);
+            blit_rect(&mut gop, &canvas, x, y, rw, rh);
         } else if let Some(t) = left {
             ticks += 1;
             if ticks >= 10 {
@@ -641,11 +746,12 @@ fn main() -> Status {
             for (x, y, rw, rh) in paint_launching(&mut canvas, &fonts, &l, &items, &sprites, selected, offset) {
                 blit_rect(&mut gop, &canvas, x, y, rw, rh);
             }
+            save_last(items[selected].name);
             if let Err(e) = start(&items[selected]) {
                 message = alloc::format!("Could not start {}: {}", items[selected].name, e);
                 left = None;
             }
-            paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message);
+            paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message, dock);
             blit_rect(&mut gop, &canvas, 0, 0, w, h);
         }
         tick();

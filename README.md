@@ -1,25 +1,25 @@
 # Sail
 
-A graphical UEFI boot menu with big tiles, written in Rust. It finds the operating systems on your machine, shows them as tiles with their logos, and starts the one you pick. It works with Secure Boot on (through shim).
-
-> **Experimental.** Sail is a boot loader. A mistake can leave a machine that does not boot. It was tested on one machine (a Lenovo ThinkStation P620 with Fedora and Windows 11). Read this page fully, keep a recovery USB, and do not use it on a machine you cannot fix.
+A graphical UEFI boot menu with big tiles, written in Rust. It finds the systems installed on your machine, shows each as a tile with its logo, and starts the one you pick. It works with Secure Boot on.
 
 ![Sail showing four of seven boot tiles](docs/preview.png)
 
-*Screenshot from a QEMU test with stand-in entries (Fedora, Ubuntu, Debian, Arch Linux, openSUSE, Linux Mint, and Windows).*
+*A QEMU run with stand-in entries.*
 
-## What it does
+> **Experimental.** Sail is a boot loader, and a mistake can leave a machine that will not boot. It has been tested on one machine only (a Lenovo ThinkStation P620 with Fedora and Windows 11, Secure Boot on). Keep a recovery USB and do not try it on a machine you cannot repair.
 
-- Scans every disk's EFI partition and lists what it knows: Fedora, Windows, Ubuntu, Debian, Arch, openSUSE, Linux Mint, and any other disk with `\EFI\BOOT\BOOTX64.EFI`.
-- Scrolling row of four tiles, arrow keys or number keys, Enter to start, 8 second countdown on the first tile.
-- Starts the choice by chainloading its EFI file. It does not replace or edit any other boot loader.
-- Runs at up to 1920x1200, even on a 4K screen, so it stays fast.
+## Features
 
-It does not read GRUB menus, pass kernel options, or manage boot entries. Linux distributions are started through their own shim and GRUB.
+- Finds Fedora, Windows, Ubuntu, Debian, Arch Linux, openSUSE and Linux Mint on any disk, plus any other disk that has `\EFI\BOOT\BOOTX64.EFI`.
+- Four tiles in view, scrolling for more. Keys: Left and Right, number keys, Enter.
+- Countdown of 8 seconds on the first tile; any key stops it.
+- Starts a system by chainloading its own EFI file. It never edits or replaces another boot loader.
+- Draws at up to 1920x1200, even on a 4K screen, to stay fast.
+- Works with Secure Boot through shim and a key you enroll yourself (MOK).
+
+**Not included:** reading GRUB menus, kernel options, saving the last choice, or managing boot entries. Linux systems start through their own shim and GRUB. x86_64 UEFI only.
 
 ## Build
-
-You need Rust with the UEFI target:
 
 ```bash
 rustup target add x86_64-unknown-uefi
@@ -28,39 +28,66 @@ cargo build --release
 
 The result is `target/x86_64-unknown-uefi/release/sail.efi`.
 
-## Install on a real machine
+## Install
 
-Use a one-time boot first, and keep your normal boot entry first in the boot order.
+Try Sail with a one-time boot first, and keep your usual entry first in the boot order. Use your own disk and partition numbers (`lsblk`, `efibootmgr -v`); `/dev/nvme0n1` and `1` below are examples.
 
-**Secure Boot off:**
+### Secure Boot off
 
-1. Copy `sail.efi` to `<EFI partition>/EFI/sail/sailx64.efi`.
-2. Add an entry: `sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label Sail --loader '\EFI\sail\sailx64.efi'` (change the disk and partition to your EFI partition).
-3. Boot it once with `sudo efibootmgr --bootnext <number>` and reboot.
+```bash
+sudo mkdir -p /boot/efi/EFI/sail
+sudo cp sail.efi /boot/efi/EFI/sail/sailx64.efi
+sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label Sail --loader '\EFI\sail\sailx64.efi'
+sudo efibootmgr --bootnext <number of the new entry>
+```
 
-**Secure Boot on (Fedora and other shim systems):**
+Then reboot.
 
-Firmware does not trust Sail's signature, but shim can trust a key you enroll (MOK):
+### Secure Boot on
 
-1. Make a signing key and sign Sail: `openssl req -new -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes -subj "/CN=Sail/" -keyout sail.key -out sail.crt`, then `sbsign --key sail.key --cert sail.crt --output grubx64.efi sail.efi`. Sail already carries a `.sbat` section, which shim requires.
-2. Enroll the key: `openssl x509 -in sail.crt -outform DER -out sail.der`, `sudo mokutil --import sail.der`, reboot, and finish the blue MOK screen (Enroll MOK, Continue, Yes, password).
-3. Copy your distribution's `shimx64.efi` and `mmx64.efi` to `EFI/sail/`, and the signed file there as `grubx64.efi` (shim starts the file with that name).
-4. Add an entry that points at `\EFI\sail\shimx64.efi`, at the end of the boot order.
+The firmware does not trust Sail's signature, but shim can trust a key you enroll.
 
-Keep `sail.key` private and out of git; whoever has it can sign code that your machine will trust.
+1. **Sign Sail** with your own key. Sail already contains the `.sbat` section that shim needs.
+   ```bash
+   openssl req -new -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes -subj "/CN=Sail/" -keyout sail.key -out sail.crt
+   sbsign --key sail.key --cert sail.crt --output grubx64.efi sail.efi
+   ```
+2. **Enroll the key.** Pick a one-time password, reboot, and on the blue screen choose Enroll MOK, Continue, Yes, then type the password.
+   ```bash
+   openssl x509 -in sail.crt -outform DER -out sail.der
+   sudo mokutil --import sail.der
+   ```
+3. **Copy the files.** Shim starts the file named `grubx64.efi` in its own folder. These paths are Fedora's; change them for your distribution.
+   ```bash
+   sudo mkdir -p /boot/efi/EFI/sail
+   sudo cp /boot/efi/EFI/fedora/shimx64.efi /boot/efi/EFI/fedora/mmx64.efi /boot/efi/EFI/sail/
+   sudo cp grubx64.efi /boot/efi/EFI/sail/
+   ```
+4. **Add the entry** and boot it once.
+   ```bash
+   sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label "Sail (Secure Boot)" --loader '\EFI\sail\shimx64.efi'
+   sudo efibootmgr --bootnext <number of the new entry>
+   ```
 
-## Recovery
+Keep `sail.key` private and out of git: whoever has it can sign code that your machine will trust.
 
-- The firmware boot menu (often F12) starts any entry directly, so your other systems still boot if Sail fails.
-- To remove Sail: `sudo efibootmgr -B -b <number>` and delete `EFI/sail` on the EFI partition.
+### Make it the default
 
-## Layout
+When the one-time boot works, move the Sail entry first: `sudo efibootmgr -o <Sail number>,<the others>`. Re-read `efibootmgr` before you do, because entry numbers can change.
+
+## Recovery and removal
+
+- If Sail fails, open the firmware boot menu (often F12) and start another entry directly. Your other systems are untouched.
+- To remove Sail, delete its entry with `sudo efibootmgr -B -b <number>` and delete the `EFI/sail` folder on the EFI partition.
+
+## Project layout
 
 | Path | What |
 |---|---|
 | `src/main.rs` | the whole boot menu |
-| `assets/` | DM Sans font, logo masks (see `NOTICE.md`) |
+| `assets/` | DM Sans font and logo masks (see `NOTICE.md`) |
+| `docs/` | preview image |
 
 ## License
 
-MIT for Sail's code (`LICENSE`). The font and logos have their own terms: see `NOTICE.md`. Distribution logos are trademarks of their owners.
+MIT for Sail's code (see `LICENSE`). The font and logos have their own terms in `NOTICE.md`. The distribution logos are trademarks of their owners, and Sail is not affiliated with them.

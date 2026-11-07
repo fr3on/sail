@@ -507,6 +507,12 @@ fn tool_icon(c: &mut Canvas, i: usize, cx: f32, cy: f32, r: f32, color: u32) {
 
 const DOCK: [&str; 3] = ["Firmware setup", "Restart", "Power off"];
 
+fn fw_setup_supported() -> bool {
+    uefi::runtime::get_variable_boxed(cstr16!("OsIndicationsSupported"), &uefi::runtime::VariableVendor::GLOBAL_VARIABLE)
+        .map(|(d, _)| d.first().map_or(false, |b| b & 1 != 0))
+        .unwrap_or(false)
+}
+
 fn dock_geometry(l: &Layout) -> (f32, f32) {
     ((l.y0 + l.tile) as f32 + l.gap as f32 * 3.6, l.h as f32 / 24.0)
 }
@@ -516,7 +522,7 @@ fn footer_top(l: &Layout) -> f32 {
     y + h + l.gap as f32 * 0.8
 }
 
-fn paint_dock(c: &mut Canvas, f: &Fonts, l: &Layout, focus: Option<usize>) -> (usize, usize, usize, usize) {
+fn paint_dock(c: &mut Canvas, f: &Fonts, l: &Layout, focus: Option<usize>, tools: &[usize]) -> (usize, usize, usize, usize) {
     let (y, h) = dock_geometry(l);
     let (rx, rw) = ((l.w as f32 * 0.15) as usize, (l.w as f32 * 0.7) as usize);
     clear_rect(c, rx, (y - 4.0) as usize, rw, (h + 8.0) as usize);
@@ -524,10 +530,10 @@ fn paint_dock(c: &mut Canvas, f: &Fonts, l: &Layout, focus: Option<usize>) -> (u
     let pad = px * 1.1;
     let gap = h * 0.35;
     let (iw, ig) = (px * 1.25, px * 0.6);
-    let widths: Vec<f32> = DOCK.iter().map(|t| Canvas::measure(&f.regular, t, px) + pad * 2.0 + iw + ig).collect();
-    let total: f32 = widths.iter().sum::<f32>() + gap * (DOCK.len() as f32 - 1.0);
+    let widths: Vec<f32> = tools.iter().map(|&t| Canvas::measure(&f.regular, DOCK[t], px) + pad * 2.0 + iw + ig).collect();
+    let total: f32 = widths.iter().sum::<f32>() + gap * (tools.len() as f32 - 1.0);
     let mut x = (l.w as f32 - total) / 2.0;
-    for (i, t) in DOCK.iter().enumerate() {
+    for (i, &t) in tools.iter().enumerate() {
         let on = focus == Some(i);
         if on {
             c.rounded(x - 2.0, y - 2.0, widths[i] + 4.0, h + 4.0, h / 2.0 + 2.0, ACCENT);
@@ -537,8 +543,8 @@ fn paint_dock(c: &mut Canvas, f: &Fonts, l: &Layout, focus: Option<usize>) -> (u
             c.rounded(x + 1.5, y + 1.5, widths[i] - 3.0, h - 3.0, h / 2.0 - 1.5, BG);
         }
         let col = if on { 0xffffff } else { MUTED };
-        tool_icon(c, i, x + pad + iw / 2.0, y + h / 2.0, iw / 2.0, col);
-        c.text(&f.regular, t, x + pad + iw + ig, y + (h - px) / 2.0 - px * 0.12, px, col);
+        tool_icon(c, t, x + pad + iw / 2.0, y + h / 2.0, iw / 2.0, col);
+        c.text(&f.regular, DOCK[t], x + pad + iw + ig, y + (h - px) / 2.0 - px * 0.12, px, col);
         x += widths[i] + gap;
     }
     (rx, (y - 4.0) as usize, rw, (h + 8.0) as usize)
@@ -572,7 +578,7 @@ fn paint_footer(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], selected
     (rx, ry, rw, rh)
 }
 
-fn paint_all(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], sprites: &[[Vec<BltPixel>; 2]], selected: usize, offset: usize, left: Option<u32>, message: &str, dock: Option<usize>) {
+fn paint_all(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], sprites: &[[Vec<BltPixel>; 2]], selected: usize, offset: usize, left: Option<u32>, message: &str, dock: Option<usize>, tools: &[usize]) {
     c.clear();
     let (w, h) = (c.w as f32, c.h as f32);
     c.centered(&f.bold, "Sail", w / 2.0, h * 0.06, h / 13.0, TEXT);
@@ -580,12 +586,12 @@ fn paint_all(c: &mut Canvas, f: &Fonts, l: &Layout, items: &[Entry], sprites: &[
     if items.is_empty() {
         c.centered(&f.medium, "No systems found", w / 2.0, h * 0.45, h / 24.0, TEXT);
         c.centered(&f.regular, "Add a boot loader to the EFI partition", w / 2.0, h * 0.45 + h / 18.0, h / 38.0, MUTED);
-        paint_dock(c, f, l, dock);
+        paint_dock(c, f, l, dock, tools);
         return;
     }
     paint_strip(c, l, sprites, selected, (offset * l.step) as f32);
     paint_arrows_dots(c, l, items.len(), offset, selected);
-    paint_dock(c, f, l, dock);
+    paint_dock(c, f, l, dock, tools);
     paint_footer(c, f, l, items, selected, left, message);
 }
 
@@ -656,11 +662,17 @@ fn save_last(name: &str) {
     let _ = uefi::runtime::set_variable(cstr16!("SailLast"), &SAIL_VENDOR, nv_attrs(), name.as_bytes());
 }
 
-fn run_tool(i: usize) -> ! {
+fn run_tool(i: usize) -> String {
     use uefi::runtime::{self, ResetType};
     match i {
         0 => {
             let vendor = runtime::VariableVendor::GLOBAL_VARIABLE;
+            let supported = runtime::get_variable_boxed(cstr16!("OsIndicationsSupported"), &vendor)
+                .map(|(d, _)| d.first().map_or(false, |b| b & 1 != 0))
+                .unwrap_or(false);
+            if !supported {
+                return String::from("This firmware cannot open its setup from software. Press its setup key (F1) at power on.");
+            }
             let mut cur = [0u8; 8];
             if let Ok((data, _)) = runtime::get_variable_boxed(cstr16!("OsIndications"), &vendor) {
                 for (d, s) in cur.iter_mut().zip(data.iter()) {
@@ -668,7 +680,9 @@ fn run_tool(i: usize) -> ! {
                 }
             }
             cur[0] |= 1;
-            let _ = runtime::set_variable(cstr16!("OsIndications"), &vendor, nv_attrs(), &cur);
+            if let Err(e) = runtime::set_variable(cstr16!("OsIndications"), &vendor, nv_attrs(), &cur) {
+                return alloc::format!("Could not ask the firmware to open its setup: {:?}", e.status());
+            }
             runtime::reset(ResetType::COLD, Status::SUCCESS, None)
         }
         1 => runtime::reset(ResetType::COLD, Status::SUCCESS, None),
@@ -707,12 +721,13 @@ fn main() -> Status {
 
     let mut selected = last.unwrap_or(0);
     let mut offset = if selected >= VISIBLE { selected + 1 - VISIBLE } else { 0 };
+    let tools: Vec<usize> = if fw_setup_supported() { vec![0, 1, 2] } else { vec![1, 2] };
     let mut dock: Option<usize> = None;
     let mut left: Option<u32> = if n == 0 { None } else { Some(COUNTDOWN_TENTHS) };
     let mut message = String::new();
     let mut ticks = 0u32;
 
-    paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message, dock);
+    paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message, dock, &tools);
     blit_rect(&mut gop, &canvas, 0, 0, w, h);
 
     loop {
@@ -730,18 +745,18 @@ fn main() -> Status {
                 }
                 Key::Special(ScanCode::UP) => dock = None,
                 Key::Special(ScanCode::RIGHT) => match dock {
-                    Some(d) => dock = Some((d + 1) % DOCK.len()),
+                    Some(d) => dock = Some((d + 1) % tools.len()),
                     None => selected = (selected + 1) % n.max(1),
                 },
                 Key::Special(ScanCode::LEFT) => match dock {
-                    Some(d) => dock = Some((d + DOCK.len() - 1) % DOCK.len()),
+                    Some(d) => dock = Some((d + tools.len() - 1) % tools.len()),
                     None => selected = (selected + n.max(1) - 1) % n.max(1),
                 },
                 Key::Printable(c) => {
                     let ch = char::from(c);
                     if ch == '\r' {
                         match dock {
-                            Some(d) => run_tool(d),
+                            Some(d) => message = run_tool(tools[d]),
                             None => go = n > 0,
                         }
                     } else if let (Some(d), None) = (ch.to_digit(10), dock) {
@@ -781,7 +796,7 @@ fn main() -> Status {
                     blit_rect(&mut gop, &canvas, x, y, rw, rh);
                 }
             }
-            let (x, y, rw, rh) = paint_dock(&mut canvas, &fonts, &l, dock);
+            let (x, y, rw, rh) = paint_dock(&mut canvas, &fonts, &l, dock, &tools);
             blit_rect(&mut gop, &canvas, x, y, rw, rh);
             let (x, y, rw, rh) = paint_footer(&mut canvas, &fonts, &l, &items, selected, left, &message);
             blit_rect(&mut gop, &canvas, x, y, rw, rh);
@@ -807,7 +822,7 @@ fn main() -> Status {
                 message = alloc::format!("Could not start {}: {}", items[selected].name, e);
                 left = None;
             }
-            paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message, dock);
+            paint_all(&mut canvas, &fonts, &l, &items, &sprites, selected, offset, left, &message, dock, &tools);
             blit_rect(&mut gop, &canvas, 0, 0, w, h);
         }
         tick();

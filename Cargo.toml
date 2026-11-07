@@ -1,0 +1,9 @@
+[package]
+name = "sail"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fontdue = { version = "0.9.5", default-features = false, features = ["hashbrown"] }
+libm = "0.2.16"
+uefi = { version = "0.41.0", features = ["alloc", "global_allocator", "panic_handler", "logger"] }

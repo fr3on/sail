@@ -1,0 +1,11 @@
+/target
+*.key
+*.crt
+*.der
+*.pem
+.sail-keys/
+*.efi
+*.fd
+mon.sock
+scripts/
+run-qemu.sh

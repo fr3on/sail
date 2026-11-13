@@ -7,5 +7,6 @@
 *.efi
 *.fd
 mon.sock
-scripts/
+scripts/*
+!scripts/qemu_smoke.py
 run-qemu.sh

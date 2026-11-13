@@ -22,6 +22,10 @@ A graphical UEFI boot menu with big tiles, written in Rust. It finds the systems
 
 **Not included:** reading GRUB menus, kernel options, or managing boot entries. Linux systems start through their own shim and GRUB. x86_64 UEFI only.
 
+## Download
+
+Tagged releases on the [releases page](https://github.com/fr3on/sail/releases) include `sail.efi` and `SHA256SUMS`. Verify with `sha256sum -c SHA256SUMS`.
+
 ## Build
 
 ```bash
@@ -91,7 +95,10 @@ When the one-time boot works, move the Sail entry first: `sudo efibootmgr -o <Sa
 cargo build --release                                  # the UEFI image
 cargo test --lib --target <your host triple>           # layout, navigation and id logic
 cargo clippy --release -- -D warnings
+python3 scripts/qemu_smoke.py                          # boots the image in QEMU and checks the menu is drawn
 ```
+
+The smoke test needs `qemu-system-x86_64` and OVMF (set `OVMF=/path/to/OVMF_CODE.fd` if it is not found). CI runs it on every push.
 
 ## Recovery and removal
 
@@ -108,6 +115,7 @@ cargo clippy --release -- -D warnings
 | `src/ui.rs`, `gfx.rs`, `icons.rs` | drawing |
 | `src/store.rs`, `tools.rs`, `text.rs` | NVRAM, tool row, text fallback |
 | `assets/` | DM Sans font and logo masks (see `NOTICE.md`) |
+| `scripts/` | QEMU smoke test |
 | `docs/` | preview image |
 
 ## License

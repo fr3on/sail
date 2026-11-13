@@ -10,11 +10,12 @@ A graphical UEFI boot menu with big tiles, written in Rust. It finds the systems
 
 ## Features
 
-- Finds Fedora, Windows, Ubuntu, Debian, Arch Linux, openSUSE and Linux Mint on any disk, plus any other disk that has `\EFI\BOOT\BOOTX64.EFI`.
+- Finds Fedora, Windows, Ubuntu, Debian, Arch Linux, openSUSE, Linux Mint, Rocky, AlmaLinux, Manjaro, systemd-boot, rEFInd and GRUB on any disk, plus any other disk that has `\EFI\BOOT\BOOTX64.EFI`.
 - Four tiles in view, scrolling for more. Keys: Left and Right, number keys, Enter.
 - Remembers the last system you started: it gets a "Last used" pill and the countdown starts on it.
 - A row of tools under the tiles (press Down): Restart, Power off, and Firmware setup where the firmware supports opening its setup from software (many do not, and then the button is hidden).
-- Countdown of 8 seconds on the first tile; any key stops it.
+- Countdown of 8 seconds on the selected tile; any key stops it. It never starts a disk found only through the generic removable-media path: that needs a deliberate Enter.
+- Shows whether Secure Boot is on. Without a working graphics output it falls back to a plain text list instead of crashing.
 - Starts a system by chainloading its own EFI file. It never edits or replaces another boot loader.
 - Draws at up to 1920x1200, even on a 4K screen, to stay fast.
 - Works with Secure Boot through shim and a key you enroll yourself (MOK).
@@ -77,6 +78,21 @@ Keep `sail.key` private and out of git: whoever has it can sign code that your m
 
 When the one-time boot works, move the Sail entry first: `sudo efibootmgr -o <Sail number>,<the others>`. Re-read `efibootmgr` before you do, because entry numbers can change.
 
+## Security notes
+
+- Sail only starts files from a fixed list of paths (and the standard removable-media path). It never reads or edits another loader's files.
+- Images go through the firmware's own `LoadImage`, so with Secure Boot on, untrusted files are refused by the firmware or shim, not by Sail.
+- The only state Sail writes is a boot-time-only NVRAM variable (`SailLastId`, 8 bytes, a hash of the partition and entry). It is validated when read and written only when it changes.
+- Sail disables the firmware's 5 minute boot watchdog while the menu waits for you.
+
+## Development
+
+```bash
+cargo build --release                                  # the UEFI image
+cargo test --lib --target <your host triple>           # layout, navigation and id logic
+cargo clippy --release -- -D warnings
+```
+
 ## Recovery and removal
 
 - If Sail fails, open the firmware boot menu (often F12) and start another entry directly. Your other systems are untouched.
@@ -86,7 +102,11 @@ When the one-time boot works, move the Sail entry first: `sudo efibootmgr -o <Sa
 
 | Path | What |
 |---|---|
-| `src/main.rs` | the whole boot menu |
+| `src/main.rs` | entry point and event loop |
+| `src/lib.rs`, `layout.rs`, `nav.rs`, `id.rs` | pure logic, unit-tested on the host |
+| `src/entries.rs` | finding and loading systems |
+| `src/ui.rs`, `gfx.rs`, `icons.rs` | drawing |
+| `src/store.rs`, `tools.rs`, `text.rs` | NVRAM, tool row, text fallback |
 | `assets/` | DM Sans font and logo masks (see `NOTICE.md`) |
 | `docs/` | preview image |
 

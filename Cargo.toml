@@ -2,8 +2,31 @@
 name = "sail"
 version = "0.1.0"
 edition = "2024"
+description = "A graphical UEFI boot menu with big tiles"
+license = "MIT"
+repository = "https://github.com/fr3on/sail"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "sail"
+path = "src/main.rs"
+test = false
+bench = false
 
 [dependencies]
 fontdue = { version = "0.9.5", default-features = false, features = ["hashbrown"] }
 libm = "0.2.16"
+
+# Only the UEFI build links the firmware crate, so the pure logic in the library
+# can be unit-tested on the host: cargo test --lib --target <host triple>
+[target.'cfg(target_os = "uefi")'.dependencies]
 uefi = { version = "0.41.0", features = ["alloc", "global_allocator", "panic_handler", "logger"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
